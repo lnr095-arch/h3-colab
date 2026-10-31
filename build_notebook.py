@@ -233,7 +233,22 @@ for _ in range(30):
         pass
 
 if ok:
-    print('✅ 界面已就绪（127.0.0.1:7860），可以跑第 8 节了')
+    print('✅ 界面已就绪（127.0.0.1:7860）')
+    gradio_url = None
+    for _ in range(10):
+        try:
+            m = re.search(r'https://[a-zA-Z0-9-]+\\.gradio\\.live', open('/content/app.log').read())
+            if m:
+                gradio_url = m.group(0)
+                break
+        except Exception:
+            pass
+        time.sleep(1)
+    if gradio_url:
+        print('=' * 62)
+        print('🎉 官方直连公网地址：', gradio_url)
+        print('=' * 62)
+    print('提示：也可以继续跑第 8 节获取 Cloudflare 备用线路')
 else:
     print('❌ 界面启动失败，日志最后部分：')
     print('-' * 60)
@@ -263,6 +278,7 @@ except Exception as exc:
 !wget -q -O /content/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
 !chmod +x /content/cloudflared
 !pkill -f cloudflared || true
+!rm -f /content/tunnel.log
 time.sleep(2)
 
 subprocess.Popen(
@@ -275,9 +291,9 @@ url = None
 for _ in range(45):
     time.sleep(2)
     try:
-        m = re.search(r'https://[-a-z0-9]+\\.trycloudflare\\.com', open('/content/tunnel.log').read())
-        if m:
-            url = m.group(0)
+        matches = re.findall(r'https://[-a-z0-9]+\\.trycloudflare\\.com', open('/content/tunnel.log').read())
+        if matches:
+            url = matches[-1]
             break
     except FileNotFoundError:
         pass
