@@ -224,10 +224,6 @@ def build_graph(prompt, width, height, length, steps, seed, turbo, first, last):
                                "strength_model": 1.0}}
         model_src = "100"
 
-    g["101"] = {"class_type": "MiniMaxH3SigmaShift",
-                "inputs": {"model": [model_src, 0],
-                           "shift_video": 12.0, "shift_audio": 3.0}}
-
     h3 = {"clip": ["2", 0], "vae": ["3", 0], "prompt": prompt,
           "width": int(width), "height": int(height), "length": int(length)}
     if first:
@@ -238,19 +234,41 @@ def build_graph(prompt, width, height, length, steps, seed, turbo, first, last):
         h3["last_frame"] = ["201", 0]
     g["5"] = {"class_type": "MiniMaxH3ImageToVideo", "inputs": h3}
 
-    g["901"] = {"class_type": "KSampler", "inputs": {
-        "model": ["101", 0], "positive": ["5", 0], "negative": ["5", 0],
-        "latent_image": ["5", 1], "seed": int(seed), "steps": int(steps),
-        "cfg": 1.0, "sampler_name": "euler", "scheduler": "simple", "denoise": 1.0}}
+    # 官方标准 MiniMax H3 采样管线（解决 euler 导致的纯黑屏问题）
+    g["10"] = {"class_type": "BasicGuider", "inputs": {
+        "model": [model_src, 0],
+        "conditioning": ["5", 0],
+    }}
+    g["11"] = {"class_type": "KSamplerSelect", "inputs": {
+        "sampler_name": "res_multistep",
+    }}
+    g["12"] = {"class_type": "BasicScheduler", "inputs": {
+        "model": [model_src, 0],
+        "scheduler": "simple",
+        "steps": int(steps),
+        "denoise": 1.0,
+    }}
+    g["13"] = {"class_type": "RandomNoise", "inputs": {
+        "noise_seed": int(seed),
+    }}
+    g["14"] = {"class_type": "SamplerCustomAdvanced", "inputs": {
+        "noise": ["13", 0],
+        "guider": ["10", 0],
+        "sampler": ["11", 0],
+        "sigmas": ["12", 0],
+        "latent_image": ["5", 1],
+    }}
+
+    # 画面与音频解码
     g["902"] = {"class_type": "VAEDecode",
-                "inputs": {"samples": ["901", 0], "vae": ["3", 0]}}
+                "inputs": {"samples": ["14", 0], "vae": ["3", 0]}}
     g["903"] = {"class_type": "VAEDecodeAudio",
-                "inputs": {"samples": ["901", 0], "vae": ["4", 0]}}
+                "inputs": {"samples": ["14", 0], "vae": ["4", 0]}}
     g["904"] = {"class_type": "CreateVideo",
                 "inputs": {"images": ["902", 0], "fps": 24.0, "audio": ["903", 0]}}
     g["905"] = {"class_type": "SaveVideo",
                 "inputs": {"video": ["904", 0], "filename_prefix": "h3_ui",
-                           "format": "mp4", "codec": "h264"}}
+                           "format": "auto", "codec": "auto"}}
     return g
 
 
