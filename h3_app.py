@@ -257,10 +257,65 @@ def build_graph(prompt, width, height, length, steps, seed, turbo, first, last):
 # ---------------------------------------------------------------------------
 # ComfyUI
 # ---------------------------------------------------------------------------
+def get_comfy_log(tail_chars=1200):
+    for p in ["/content/comfy.log", "comfy.log"]:
+        if os.path.exists(p):
+            try:
+                return open(p, "r", encoding="utf-8", errors="ignore").read()[-tail_chars:]
+            except Exception:
+                pass
+    return None
+
+
+def ensure_comfy_running():
+    """检查 ComfyUI 是否存活，若未启动则尝试自动后台拉起"""
+    try:
+        if requests.get(f"{COMFY}/system_stats", timeout=2).status_code == 200:
+            return True, "ComfyUI 运行正常"
+    except Exception:
+        pass
+
+    main_py = COMFY_DIR / "main.py"
+    if main_py.exists():
+        try:
+            import torch
+            vram = torch.cuda.get_device_properties(0).total_memory / 2**30
+            flag = "--highvram" if vram >= 70 else "--normalvram"
+        except Exception:
+            flag = "--normalvram"
+
+        log = open("/content/comfy.log", "a")
+        subprocess.Popen(
+            ["python", "main.py", "--listen", "127.0.0.1", "--port", "8188", flag],
+            cwd=str(COMFY_DIR),
+            stdout=log,
+            stderr=subprocess.STDOUT,
+        )
+        for _ in range(25):
+            time.sleep(2)
+            try:
+                if requests.get(f"{COMFY}/system_stats", timeout=2).status_code == 200:
+                    return True, "ComfyUI 已自动拉起成功"
+            except Exception:
+                pass
+
+    log_snip = get_comfy_log(1000)
+    if log_snip:
+        return False, f"ComfyUI (8188) 未响应。comfy.log 最新日志：\n{log_snip}"
+    return False, "ComfyUI (8188) 未启动，请在 Colab 中先运行第 6 节启动 ComfyUI。"
+
+
 def submit(graph):
-    r = requests.post(f"{COMFY}/prompt",
-                      json={"prompt": graph, "client_id": f"h3-{uuid.uuid4().hex[:8]}"},
-                      timeout=30)
+    try:
+        r = requests.post(f"{COMFY}/prompt",
+                          json={"prompt": graph, "client_id": f"h3-{uuid.uuid4().hex[:8]}"},
+                          timeout=30)
+    except requests.exceptions.RequestException as e:
+        log_snip = get_comfy_log(1000)
+        if log_snip:
+            raise RuntimeError(f"连接 ComfyUI (8188) 失败。comfy.log 最新日志：\n{log_snip}")
+        raise RuntimeError(f"连接 ComfyUI (8188) 失败: {e}")
+
     if r.status_code != 200:
         raise RuntimeError(f"ComfyUI 拒收任务: {r.status_code} {r.text[:300]}")
     return r.json()["prompt_id"]
@@ -344,6 +399,11 @@ def generate(idea, prompt, key, model, seconds, ratio, steps, seed, turbo,
     length = snap_frames(int(seconds))
     if int(seed) < 0:
         seed = int.from_bytes(os.urandom(4), "big") % (2 ** 31)
+
+    ok, msg = ensure_comfy_running()
+    if not ok:
+        yield None, f"出错：{msg}"
+        return
 
     try:
         graph = build_graph(prompt.strip(), width, height, length,
