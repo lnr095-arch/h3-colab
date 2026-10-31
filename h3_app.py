@@ -459,15 +459,12 @@ def build_ui():
 
 
 if __name__ == "__main__":
-    build_ui().queue().launch(
+    app = build_ui()
+    app.queue()
+    print("正在启动 Gradio 界面 (127.0.0.1:7860)...")
+    print("Gemini key:", "已配置" if GEMINI_KEY else "未配置（可在界面填写）")
+    app.launch(
         server_name="127.0.0.1",
         server_port=int(os.environ.get("H3_PORT", "7860")),
         share=False,
-        prevent_thread_lock=True,
-        quiet=True,
-        show_api=False,
     )
-    print("界面已启动: http://127.0.0.1:7860")
-    print("Gemini key:", "已配置" if GEMINI_KEY else "未配置（界面上填）")
-    while True:
-        time.sleep(3600)
