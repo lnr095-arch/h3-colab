@@ -336,11 +336,11 @@ def fetch_video(history):
                 local = OUT_DIR / fn
                 local.write_bytes(requests.get(url, timeout=300).content)
                 try:
-                    if DRIVE_OUT.exists():
-                        DRIVE_OUT.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(local, DRIVE_OUT / fn)
-                except Exception:
-                    pass
+                    DRIVE_OUT.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(local, DRIVE_OUT / fn)
+                    print(f"✅ 成片已成功同步到 Google Drive: {DRIVE_OUT / fn}")
+                except Exception as exc:
+                    print(f"⚠️ 同步到 Google Drive 失败: {exc}")
                 return str(local)
     return None
 
