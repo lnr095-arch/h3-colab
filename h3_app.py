@@ -136,13 +136,17 @@ def gemini_models(key):
 
 def score_model(name):
     s = 0
+    if "3.8" in name or "3-8" in name:
+        s += 500
+    elif "3" in name:
+        s += 300
     m = re.search(r"gemini-(\d+)", name)
     if m:
         s += int(m.group(1)) * 100
-    if "pro" in name:
-        s += 50
-    elif "flash" in name:
-        s += 20
+    if "flash" in name:
+        s += 60
+    elif "pro" in name:
+        s += 30
     if "exp" in name or "preview" in name:
         s -= 5
     if "latest" in name:
@@ -151,31 +155,61 @@ def score_model(name):
 
 
 def pick_model(key, preferred=""):
-    if preferred:
-        return preferred
-    names = gemini_models(key)
-    if not names:
-        raise RuntimeError("这个 key 下没有可用的 generateContent 模型")
-    return sorted(names, key=score_model)[-1]
+    if preferred and preferred.strip():
+        return preferred.strip()
+    try:
+        names = gemini_models(key)
+        for n in names:
+            if "3.8" in n and "flash" in n:
+                return n
+        for n in names:
+            if "3" in n and "flash" in n:
+                return n
+        if names:
+            return sorted(names, key=score_model)[-1]
+    except Exception:
+        pass
+    return "gemini-3.8-flash"
 
 
 def call_gemini(key, model, user_msg, temperature=0.7):
+    # 配置高思考 (thinkingLevel: HIGH) 与充足 token
     body = {
         "system_instruction": {"parts": [{"text": SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": user_msg}]}],
-        "generationConfig": {"temperature": temperature, "maxOutputTokens": 4096},
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": 8192,
+            "thinkingConfig": {
+                "thinkingLevel": "HIGH",
+            },
+        },
     }
-    r = requests.post(
-        f"{GEMINI_BASE}/models/{model}:generateContent",
-        params={"key": key}, json=body, timeout=180,
-    )
+    url = f"{GEMINI_BASE}/models/{model}:generateContent"
+    r = requests.post(url, params={"key": key}, json=body, timeout=180)
+
+    # 兼容性降级：若特定网关要求数值型 thinkingBudget
+    if r.status_code == 400 and "thinking" in r.text.lower():
+        body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 24576}
+        r = requests.post(url, params={"key": key}, json=body, timeout=180)
+
+    # 兼容性回退：若当前账号尚未激活 3.8-flash，自动平滑切至 2.5-flash
+    if r.status_code in (404, 400) and "3.8" in model:
+        print("gemini-3.8-flash 未激活，自动切换至备选高速推理模型...")
+        return call_gemini(key, "gemini-2.5-flash", user_msg, temperature)
+
     if r.status_code != 200:
         raise RuntimeError(f"Gemini {r.status_code}: {r.text[:300]}")
     cands = r.json().get("candidates") or []
     if not cands:
-        raise RuntimeError("Gemini 没有返回内容（可能被安全策略拦了）")
+        raise RuntimeError("Gemini 没有返回内容（可能被安全过滤了）")
     parts = cands[0].get("content", {}).get("parts") or []
-    text = "".join(p.get("text", "") for p in parts).strip()
+
+    # 过滤掉内部思考 (thought: true)，只把最终纯净的 H3 提示词送入渲染
+    output_parts = [p.get("text", "") for p in parts if not p.get("thought", False)]
+    if not output_parts:
+        output_parts = [p.get("text", "") for p in parts]
+    text = "".join(output_parts).strip()
     return re.sub(r"^```[a-z]*\n|\n```$", "", text).strip()
 
 
@@ -500,7 +534,7 @@ def build_ui():
             key = gr.Textbox(label="API Key", type="password",
                              value=GEMINI_KEY,
                              info="aistudio.google.com/apikey 免费申请")
-            model = gr.Textbox(label="模型（留空自动选）", value="")
+            model = gr.Textbox(label="模型（默认 Gemini 3.8 Flash + 高思考）", value="gemini-3.8-flash")
 
         gr.Markdown("---")
 
