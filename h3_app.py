@@ -336,7 +336,7 @@ def ensure_comfy_running():
         except Exception:
             flag = "--normalvram"
 
-        os.system(f"nohup python {COMFY_DIR}/main.py --listen 127.0.0.1 --port 8188 {flag} > /content/comfy.log 2>&1 &")
+        os.system(f"cd {COMFY_DIR} && nohup python main.py --listen 127.0.0.1 --port 8188 {flag} > /content/comfy.log 2>&1 &")
         for _ in range(25):
             time.sleep(2)
             try:
@@ -565,6 +565,10 @@ def build_ui():
 
 
 if __name__ == "__main__":
+    print("正在检查并自动拉起 ComfyUI 后台引擎 (127.0.0.1:8188)...")
+    ok, msg = ensure_comfy_running()
+    print("ComfyUI 引擎状态:", msg)
+
     app = build_ui()
     app.queue()
     print("正在启动 Gradio 界面 (127.0.0.1:7860)...")
