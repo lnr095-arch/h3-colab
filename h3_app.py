@@ -32,7 +32,7 @@ GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 DIT = os.environ.get("H3_DIT", "minimax_h3_fl2va_pruned_int8_convrot.safetensors")
 ENC = os.environ.get("H3_ENC", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors")
-VVAE = os.environ.get("H3_VVAE", "minimax_h3_video_vae_int8_convrot.safetensors")
+VVAE = os.environ.get("H3_VVAE", "minimax_h3_video_vae_fp16.safetensors")
 AVAE = os.environ.get("H3_AVAE", "minimax_h3_audio_vae_fp32.safetensors")
 TURBO_LORA = "minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors"
 
@@ -242,6 +242,13 @@ def stage_image(path):
 
 
 def build_graph(prompt, width, height, length, steps, seed, turbo, first, last):
+    global VVAE
+    vae_dir = COMFY_DIR / "models" / "vae"
+    if (vae_dir / "minimax_h3_video_vae_fp16.safetensors").exists():
+        VVAE = "minimax_h3_video_vae_fp16.safetensors"
+    elif (vae_dir / "minimax_h3_video_vae_int8_convrot.safetensors").exists():
+        VVAE = "minimax_h3_video_vae_int8_convrot.safetensors"
+
     g = {
         "1": {"class_type": "UNETLoader",
               "inputs": {"unet_name": DIT, "weight_dtype": "default"}},
@@ -319,13 +326,17 @@ def get_comfy_log(tail_chars=1200):
     return None
 
 
-def ensure_comfy_running():
-    """检查 ComfyUI 是否存活，若未启动则尝试自动后台拉起"""
-    try:
-        if requests.get(f"{COMFY}/system_stats", timeout=2).status_code == 200:
-            return True, "ComfyUI 运行正常"
-    except Exception:
-        pass
+def ensure_comfy_running(force_restart=False):
+    """检查 ComfyUI 是否存活，若未启动或需要重载模型则自动后台拉起"""
+    if force_restart:
+        os.system('pkill -f "main.py --listen" || true')
+        time.sleep(1)
+    else:
+        try:
+            if requests.get(f"{COMFY}/system_stats", timeout=2).status_code == 200:
+                return True, "ComfyUI 运行正常"
+        except Exception:
+            pass
 
     main_py = COMFY_DIR / "main.py"
     if main_py.exists():
@@ -337,7 +348,7 @@ def ensure_comfy_running():
             flag = "--normalvram"
 
         os.system(f"cd {COMFY_DIR} && nohup python main.py --listen 127.0.0.1 --port 8188 {flag} > /content/comfy.log 2>&1 &")
-        for _ in range(25):
+        for _ in range(35):
             time.sleep(2)
             try:
                 if requests.get(f"{COMFY}/system_stats", timeout=2).status_code == 200:
@@ -349,6 +360,39 @@ def ensure_comfy_running():
     if log_snip:
         return False, f"ComfyUI (8188) 未响应。comfy.log 最新日志：\n{log_snip}"
     return False, "ComfyUI (8188) 未启动，请在 Colab 中先运行第 6 节启动 ComfyUI。"
+
+
+def ensure_models():
+    """保证视频 VAE 存在，优先使用彻底杜绝黑屏 NaN 问题的 FP16 官方 VAE"""
+    global VVAE
+    vae_dir = COMFY_DIR / "models" / "vae"
+    fp16_name = "minimax_h3_video_vae_fp16.safetensors"
+    fp16_path = vae_dir / fp16_name
+    int8_name = "minimax_h3_video_vae_int8_convrot.safetensors"
+
+    if not fp16_path.exists():
+        print("⚡ 未检测到官方标准 minimax_h3_video_vae_fp16.safetensors，正在高速下载（彻底解决黑屏 NaN 缺陷）...")
+        try:
+            os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'
+            from huggingface_hub import hf_hub_download
+            hf_hub_download(
+                repo_id="Comfy-Org/MiniMax-H3",
+                filename=f"vae/{fp16_name}",
+                local_dir=str(COMFY_DIR / "models")
+            )
+            print(f"✅ {fp16_name} 下载完成！已彻底消除黑屏隐患。")
+            VVAE = fp16_name
+            # 下载了新模型，强制重启 ComfyUI 以加载最新模型列表
+            ensure_comfy_running(force_restart=True)
+            return
+        except Exception as e:
+            print(f"⚠️ 自动下载 {fp16_name} 遇到异常: {e}")
+            if (vae_dir / int8_name).exists():
+                print(f"暂时回退使用已有的 {int8_name}")
+                VVAE = int8_name
+    else:
+        print(f"✅ 已就绪官方无Bug解码器: {fp16_name}")
+        VVAE = fp16_name
 
 
 def submit(graph):
@@ -565,6 +609,9 @@ def build_ui():
 
 
 if __name__ == "__main__":
+    print("正在检查模型完整性 (优先确保 FP16 VAE)...")
+    ensure_models()
+
     print("正在检查并自动拉起 ComfyUI 后台引擎 (127.0.0.1:8188)...")
     ok, msg = ensure_comfy_running()
     print("ComfyUI 引擎状态:", msg)

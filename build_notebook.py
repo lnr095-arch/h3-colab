@@ -91,7 +91,7 @@ md("""## 4. 下载权重（约 37GB）
 |---|---|---|
 | `fl2va_pruned_int8_convrot` | 19.5G | 主模型 |
 | `qwen3vl_32b_nvfp4_awq` | 14.6G | 文字理解（官方注明不需要 Blackwell） |
-| `video_vae_int8_convrot` | 2.4G | 画面解码 |
+| `video_vae_fp16` | 4.9G | 画面解码（官方推荐，彻底解决黑屏 NaN 缺陷） |
 | `audio_vae_fp32` | 0.6G | 声音解码 |
 | `fl2v_turbo_8step` | — | 加速 LoRA（8 步） |
 """)
@@ -106,7 +106,7 @@ REPO = 'Comfy-Org/MiniMax-H3'
 FILES = [
     'diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors',
     'text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors',
-    'vae/minimax_h3_video_vae_int8_convrot.safetensors',
+    'vae/minimax_h3_video_vae_fp16.safetensors',
     'vae/minimax_h3_audio_vae_fp32.safetensors',
     'loras/minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors',
 ]
