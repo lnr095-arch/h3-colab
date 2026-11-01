@@ -150,11 +150,11 @@ vram = torch.cuda.get_device_properties(0).total_memory / 2**30
 flag = '--highvram' if vram >= 70 else '--normalvram'
 print(f'显存 {vram:.0f} GB → 启动参数 {flag}')
 
-log = open('/content/comfy.log', 'w')
-subprocess.Popen(
-    ['python', 'main.py', '--listen', '127.0.0.1', '--port', '8188', flag],
-    stdout=log, stderr=subprocess.STDOUT,
-)
+!pkill -f "main.py --listen" || true
+time.sleep(1)
+
+# 使用 nohup 独立守护进程启动，防止 Python 垃圾回收导致管道中断
+!nohup python main.py --listen 127.0.0.1 --port 8188 {flag} > /content/comfy.log 2>&1 &
 
 print('等待 ComfyUI 引擎启动就绪...')
 ready = False

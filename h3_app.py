@@ -336,13 +336,7 @@ def ensure_comfy_running():
         except Exception:
             flag = "--normalvram"
 
-        log = open("/content/comfy.log", "a")
-        subprocess.Popen(
-            ["python", "main.py", "--listen", "127.0.0.1", "--port", "8188", flag],
-            cwd=str(COMFY_DIR),
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
+        os.system(f"nohup python {COMFY_DIR}/main.py --listen 127.0.0.1 --port 8188 {flag} > /content/comfy.log 2>&1 &")
         for _ in range(25):
             time.sleep(2)
             try:
